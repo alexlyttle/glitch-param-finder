@@ -5,10 +5,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from scipy.integrate import cumtrapz
+from multiprocessing import Pool
 
-def load_profile(filepath):
+MAKE_PLOTS = False
+
+def smooth(x, window):
+    """Smooth y using a box kernel of size window."""
+    box = np.ones(window)/window
+    x_smooth = np.convolve(x, box, mode='same')
+    return x_smooth
+
+def load_profile(filename):
     """Loads a GYRE profile and converts to pandas."""
-    profile = pg.read_model(filepath).to_pandas()
+    profile = pg.read_model(filename).to_pandas()
     return profile
 
 def sound_speed(profile):
@@ -23,12 +32,6 @@ def acoustic_depth(profile):
         Acoustic depth increases radially from the stellar surface.
     """
     return - cumtrapz(1/profile['c'].iloc[::-1], profile['r'].iloc[::-1], initial=0)[::-1]
-
-def smooth(x, window):
-    """Smooth y using a box kernel of size window."""
-    box = np.ones(window)/window
-    x_smooth = np.convolve(x, box, mode='same')
-    return x_smooth
 
 def plot_gamma(ax, profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz):
     """Plot the first adiabatic exponant with the locations of the BCZ and HeII zones."""
@@ -54,7 +57,7 @@ def plot_n2(ax, profile):
 
 def get_delta_cz(profile, tau, window_width=200.):
     """Gets the delta term for the BCZ from the max-min of d2ln(rho)/dr2 about tau_cz.
-    mult
+    TODO!
     """
     drho_dr = np.gradient(np.log(profile['rho']), profile['r'])
     d2rho_dr2 = np.gradient(drho_dr, profile['r'])
@@ -78,47 +81,61 @@ def get_delta_cz(profile, tau, window_width=200.):
     delta = p2[0] - p1[0]
     return sound_speed, delta, 0.5 * sound_speed**2 * delta
 
-def find_glitch_params(filepath, make_plots=False):
-    profile = load_profile(filepath)
+def find_glitch_params(filename, make_plots=False):
+    profile = load_profile(filename)
+    
     profile['c'] = sound_speed(profile)
     profile['tau'] = acoustic_depth(profile)
     profile['gamma_smooth'] = smooth(profile['Gamma_1'], 50)
     
+    tau_he, delta_he, gamma_he, amp_he = (np.nan, np.nan, np.nan, np.nan)
     he_cond = (profile['T'] > 4e4) & (profile['T'] < 2e5)
-    tau = profile.loc[he_cond, 'tau']
-    gamma = profile.loc[he_cond, 'gamma_smooth']
-    dgamma = np.gradient(gamma)
-    dgamma2 = np.gradient(dgamma)
-    mask = (dgamma > 0) & (dgamma2 > 0)
     
-    tau_he = tau[mask].iloc[0]
-    delta_he = tau_he - tau[mask].iloc[-1]
-    gamma_he = profile[he_cond].loc[mask, 'Gamma_1'].iloc[0]
-    gamma0 = 1.651
-    Gamma_he = 2* delta_he * np.sqrt(2*np.pi) * (gamma0 - gamma_he) / (gamma0 + gamma_he)
+    if any(he_cond):
+        tau = profile.loc[he_cond, 'tau']
+        gamma = profile.loc[he_cond, 'gamma_smooth']
+        dgamma = np.gradient(gamma)
+        dgamma2 = np.gradient(dgamma)
+        mask = (dgamma > 0) & (dgamma2 > 0)
+        
+        tau_he = tau[mask].iloc[0]
+        delta_he = tau_he - tau[mask].iloc[-1]
+        gamma_he = profile[he_cond].loc[mask, 'Gamma_1'].iloc[0]
+        gamma0 = 1.651
+        Gamma_he = 2* delta_he * np.sqrt(2*np.pi) * (gamma0 - gamma_he) / (gamma0 + gamma_he)
+        
+        T = profile['tau'].iloc[0]
+        amp_he = np.pi * Gamma_he / T # equation (16) Houdek & Gough (2007)
     
-    T = profile['tau'].iloc[0]
-    amp_he = np.pi * Gamma_he / T # equation (16) Houdek & Gough (2007)
+    tau_cz, delta_cz, gamma_cz, amp_cz = (np.nan, np.nan, np.nan, np.nan)
+    conv = profile['N^2'] < 0
+
+    if any(conv):
+        # if any part is convective look for the lower boundary of the
+        # outermost convective zone
+        conv_zone_start = conv.loc[conv == True].index[-1]
+        conv = conv.loc[:conv_zone_start]  # trim up to conv zone start
+        idx_cz = conv.loc[conv == False].index[-1]
+        tau_cz = profile.loc[idx_cz, 'tau']
+        gamma_cz = profile.loc[idx_cz, 'Gamma_1']
     
-    idx_min = profile.loc[(profile['N^2'] > 0)].iloc[0].name  # First positive
-#     dN2 = np.gradient(profile['N^2'])
-    cz_cond = (profile['N^2'] < 0)  # & (dN2 < 0)
-    
-    tau_cz = profile[cz_cond].loc[idx_min:, 'tau'].iloc[0]
-    gamma_cz = profile[cz_cond].loc[idx_min:, 'Gamma_1'].iloc[0]
-#     c_cz, d_cz, delta_cz = get_delta_cz(profile, tau_cz)
-#     amp_cz = delta_cz / 16 / np.pi**2 / T # see my derivation from Houdek & Gough (2007)
+    # TODO: figure out all this stuff if needed
+    #  c_cz, d_cz, delta_cz = get_delta_cz(profile, tau_cz)
+    #  amp_cz = delta_cz / 16 / np.pi**2 / T # see my derivation from Houdek & Gough (2007)
     # dnu_cz = amp_cz * delta_nu / nu**2 * sin(...)
 
-#     tau_cz = profile.loc[cz_cond, 'tau'].iloc[0]
-#     gamma_cz = profile.loc[cz_cond, 'Gamma_1'].iloc[0]
+    #  tau_cz = profile.loc[cz_cond, 'tau'].iloc[0]
+    #  gamma_cz = profile.loc[cz_cond, 'Gamma_1'].iloc[0]
     
-    if make_plots:
-        fig, axes = plt.subplots(2, 1, figsize=(6.4, 8.0), sharex=True, gridspec_kw={'hspace': 0.05})
-        plot_gamma(axes[0], profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz)
-        plot_n2(axes[1], profile)
+    # if make_plots:
+    # # TODO!
+    #     _, axes = plt.subplots(2, 1, figsize=(6.4, 8.0), sharex=True, gridspec_kw={'hspace': 0.05})
+    #     plot_gamma(axes[0], profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz)
+    #     plot_n2(axes[1], profile)
+    #     plt.show()
 
     return pd.Series({
+        'filename': filename,
         'tau_he': tau_he,
         'delta_he': delta_he,
         'amp_he': amp_he,
@@ -129,13 +146,37 @@ def find_glitch_params(filepath, make_plots=False):
 #         'd_cz': d_cz,
     })
 
+def pool_glitch_params(filenames, num_processes=None, chunksize=1):
+    outputs = [None] * len(filenames)
+    with Pool(num_processes) as pool:
+        # create iterator
+        # TODO need way to make plots
+        imap = pool.imap_unordered(find_glitch_params, filenames, chunksize)
+        outputs = [output for output in imap]
+    return outputs
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('filepath', help='path to GYRE profile file')
-    parser.add_argument('-p', '--plot', action='store_true',
-                        help='make plots')
+    parser.add_argument('filenames', nargs='+', 
+                        help='GYRE profile filename(s)')
+    # parser.add_argument('-p', '--plot', action='store_true',
+    #                     help='make plots')
+    parser.add_argument('-n', '--num-processes', type=int,
+                        help='number of parallel processes (defaults to CPU count)')
+    parser.add_argument('-o', '--output', type=str,
+                        help='filename to output results to')
+    
     args = parser.parse_args()
-    out = find_glitch_params(args.filepath, make_plots=args.plot)
-    print(out)
-    if args.plot:
-        plt.show()
+
+    num_files = len(args.filenames)
+    num_chunks = min(num_files, 4)
+    chunksize = num_files//num_chunks  # split work into chunks for imap
+    
+    outputs = pool_glitch_params(args.filenames, num_processes=args.num_processes,
+                                 chunksize=chunksize)
+
+    df = pd.DataFrame(outputs)
+    if args.output is None:
+        print(df)
+    else:
+        df.to_csv(args.output)
