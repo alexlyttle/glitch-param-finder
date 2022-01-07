@@ -10,7 +10,7 @@ from .io import read_mesa_profile
 
 # MAKE_PLOTS = False
 LOGGER = logging.getLogger(__name__)
-PACKAGE_DIR = os.path.dirname(__file__)
+PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_version():
     with open(os.path.join(PACKAGE_DIR, 'version.txt')) as file:
