@@ -1,11 +1,11 @@
 import argparse
 import numpy as np
-import pygyre as pg
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scipy.integrate import cumtrapz
 from multiprocessing import Pool
+
+from .io import read_mesa_profile
 
 MAKE_PLOTS = False
 
@@ -15,13 +15,22 @@ def smooth(x, window):
     x_smooth = np.convolve(x, box, mode='same')
     return x_smooth
 
+def cumulative_trapz(y, x):
+    """1D cumulative trapezium method for numerical integration"""
+    y = np.array(y)
+    x = np.array(x)
+    res = np.zeros_like(y)
+    res[1:] = np.cumsum(0.5 * np.diff(x) * (y[1:] + y[:-1]))
+    return res
+    
 def load_profile(filename):
     """Loads a GYRE profile and converts to pandas."""
-    profile = pg.read_model(filename).to_pandas()
-    return profile
+    return read_mesa_profile(filename)
 
 def sound_speed(profile):
     """Calculates the adiabatic speed of sound across the profile."""
+    if 'Gamma_1' not in profile.columns:
+        raise KeyError('First adiabatic exponant Gamma_1 must be present in the input file.')
     return np.sqrt(profile['Gamma_1'] * profile['P'] / profile['rho'])
 
 def acoustic_depth(profile):
@@ -31,7 +40,7 @@ def acoustic_depth(profile):
         The profile goes radially out from the centre of the star, and thus must be reversed.
         Acoustic depth increases radially from the stellar surface.
     """
-    return - cumtrapz(1/profile['c'].iloc[::-1], profile['r'].iloc[::-1], initial=0)[::-1]
+    return - cumulative_trapz(1/profile['c'].iloc[::-1], profile['r'].iloc[::-1])[::-1]
 
 def plot_gamma(ax, profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz):
     """Plot the first adiabatic exponant with the locations of the BCZ and HeII zones."""
@@ -146,10 +155,14 @@ def find_glitch_params(filename, make_plots=False):
 #         'd_cz': d_cz,
     })
 
-def pool_glitch_params(filenames, num_processes=None, chunksize=1):
-    outputs = [None] * len(filenames)
+def pool_glitch_params(filenames, num_processes=1, chunksize_factor=4):
+    
+    chunksize, extra = divmod(len(filenames), num_processes * chunksize_factor)
+    if extra:  # If leftover, add to chunksize
+        chunksize += 1
+        
     with Pool(num_processes) as pool:
-        # create iterator
+        # Create iterator map
         # TODO need way to make plots
         imap = pool.imap_unordered(find_glitch_params, filenames, chunksize)
         outputs = [output for output in imap]
@@ -161,22 +174,24 @@ def main():
                         help='GYRE profile filename(s)')
     # parser.add_argument('-p', '--plot', action='store_true',
     #                     help='make plots')
-    parser.add_argument('-n', '--num-processes', type=int,
-                        help='number of parallel processes (defaults to CPU count)')
+    parser.add_argument('-p', '--processes', type=int, default=1,
+                        help='number of parallel processes (defaults to 1)')
     parser.add_argument('-o', '--output', type=str,
                         help='filename to output results to')
     
     args = parser.parse_args()
-
-    num_files = len(args.filenames)
-    num_chunks = min(num_files, 4)
-    chunksize = num_files//num_chunks  # split work into chunks for imap
     
-    outputs = pool_glitch_params(args.filenames, num_processes=args.num_processes,
-                                 chunksize=chunksize)
+    if args.processes == 1:
+        outputs = [find_glitch_params(filename) for filename in args.filenames]
+    else:
+        outputs = pool_glitch_params(args.filenames, num_processes=args.processes)
 
     df = pd.DataFrame(outputs)
     if args.output is None:
         print(df)
     else:
-        df.to_csv(args.output)
+        df.to_csv(args.output, index=False)
+
+
+if __name__ == '__main__':
+    main()
