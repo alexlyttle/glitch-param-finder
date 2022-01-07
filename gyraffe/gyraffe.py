@@ -185,12 +185,12 @@ def main():
                         help='number of parallel processes (defaults to 1)')
     parser.add_argument('-o', '--output', type=str,
                         help='filename to which to output results')
-    parser.add_argument('--log-level', type=str, default='WARNING',
-                        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
-                        )
     parser.add_argument('--log-file', type=str,
                         help='filename to which to output log')
-    
+    parser.add_argument('--log-level', type=str, default='WARNING',
+                        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
+                        )
+
     args = parser.parse_args()
     
     root = logging.getLogger('gyraffe')  # Log all in gyraffe module
