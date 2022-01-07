@@ -12,7 +12,7 @@ setup(
     description='The (GYRE) acoustic-glitch finder',
     author='Alex Lyttle',
     version=version,
-    packages=find_packages(''),
+    packages=find_packages(),
     install_requires=install_requires,
     entry_points={
         'console_scripts': [
