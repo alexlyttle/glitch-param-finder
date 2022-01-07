@@ -1,3 +1,5 @@
-from gyraffe import *
+from ast import literal_eval
+from .gyraffe import *
 
-__version__ = '0.0.1dev'
+with open('version.txt') as file:
+    __version__ = literal_eval(file.readline())
