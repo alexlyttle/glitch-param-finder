@@ -1,17 +1,21 @@
 import argparse, logging
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from multiprocessing import Pool
+from ast import literal_eval
 from tqdm import tqdm
 
 from .io import read_mesa_profile
-from .version import __version__
 
-MAKE_PLOTS = False
+# MAKE_PLOTS = False
 LOGGER = logging.getLogger(__name__)
 
+def get_version():
+    with open('version.txt') as file:
+        version = literal_eval(file.readline())
+    return version
+    
 def smooth(x, window):
     """Smooth y using a box kernel of size window."""
     LOGGER.debug(f'Smooth input with a window width of {window}')
@@ -197,7 +201,7 @@ def main():
         root.addHandler(handler)
     
     root.setLevel(args.log_level)
-    root.info(f'Using gyraffe v{__version__}')
+    root.info(f'Using gyraffe v{get_version()}')
     
     if args.processes == 1:
         outputs = [find_glitch_params(filename) for filename in \
