@@ -1,4 +1,4 @@
-import argparse, logging
+import os, argparse, logging
 import numpy as np
 import pandas as pd
 
@@ -10,9 +10,10 @@ from .io import read_mesa_profile
 
 # MAKE_PLOTS = False
 LOGGER = logging.getLogger(__name__)
+PACKAGE_DIR = os.path.dirname(__file__)
 
 def get_version():
-    with open('version.txt') as file:
+    with open(os.path.join(PACKAGE_DIR, 'version.txt')) as file:
         version = literal_eval(file.readline())
     return version
     
