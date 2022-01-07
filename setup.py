@@ -1,5 +1,5 @@
 from ast import literal_eval
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('requirements.txt') as file:
     install_requires = file.read().splitlines()
@@ -12,6 +12,7 @@ setup(
     description='The (GYRE) acoustic-glitch finder',
     author='Alex Lyttle',
     version=version,
+    packages=find_packages('gyraffe'),
     install_requires=install_requires,
     entry_points={
         'console_scripts': [
