@@ -1,34 +1,36 @@
-import argparse
+import argparse, logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from multiprocessing import Pool
+from tqdm import tqdm
 
 from .io import read_mesa_profile
+from .version import __version__
 
 MAKE_PLOTS = False
+LOGGER = logging.getLogger(__name__)
 
 def smooth(x, window):
     """Smooth y using a box kernel of size window."""
+    LOGGER.debug(f'Smooth input with a window width of {window}')
     box = np.ones(window)/window
     x_smooth = np.convolve(x, box, mode='same')
     return x_smooth
 
 def cumulative_trapz(y, x):
     """1D cumulative trapezium method for numerical integration"""
+    LOGGER.debug('Comute cumulative integral using trapezium method')
     y = np.array(y)
     x = np.array(x)
     res = np.zeros_like(y)
     res[1:] = np.cumsum(0.5 * np.diff(x) * (y[1:] + y[:-1]))
     return res
-    
-def load_profile(filename):
-    """Loads a GYRE profile and converts to pandas."""
-    return read_mesa_profile(filename)
 
 def sound_speed(profile):
     """Calculates the adiabatic speed of sound across the profile."""
+    LOGGER.debug('Calculate sound speed')
     if 'Gamma_1' not in profile.columns:
         raise KeyError('First adiabatic exponant Gamma_1 must be present in the input file.')
     return np.sqrt(profile['Gamma_1'] * profile['P'] / profile['rho'])
@@ -91,7 +93,8 @@ def get_delta_cz(profile, tau, window_width=200.):
     return sound_speed, delta, 0.5 * sound_speed**2 * delta
 
 def find_glitch_params(filename, make_plots=False):
-    profile = load_profile(filename)
+    LOGGER.debug(f"Find glitch parameters for file '{filename}'")
+    profile = read_mesa_profile(filename)
     
     profile['c'] = sound_speed(profile)
     profile['tau'] = acoustic_depth(profile)
@@ -142,7 +145,6 @@ def find_glitch_params(filename, make_plots=False):
     #     plot_gamma(axes[0], profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz)
     #     plot_n2(axes[1], profile)
     #     plt.show()
-
     return pd.Series({
         'filename': filename,
         'tau_he': tau_he,
@@ -177,21 +179,40 @@ def main():
     parser.add_argument('-p', '--processes', type=int, default=1,
                         help='number of parallel processes (defaults to 1)')
     parser.add_argument('-o', '--output', type=str,
-                        help='filename to output results to')
+                        help='filename to which to output results')
+    parser.add_argument('--log-level', type=str, default='WARNING',
+                        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
+                        )
+    parser.add_argument('--log-file', type=str,
+                        help='filename to which to output log')
     
     args = parser.parse_args()
     
+    root = logging.getLogger('gyraffe')  # Log all in gyraffe module
+    
+    if args.log_file is not None:
+        formatter = logging.Formatter('%(asctime)s %(name)-15s %(levelname)-8s %(message)s')
+        handler = logging.FileHandler(args.log_file)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    
+    root.setLevel(args.log_level)
+    root.info(f'Using gyraffe v{__version__}')
+    
     if args.processes == 1:
-        outputs = [find_glitch_params(filename) for filename in args.filenames]
+        outputs = [find_glitch_params(filename) for filename in \
+            tqdm(args.filenames, desc='Finding glitch parameters', unit='files')]
     else:
         outputs = pool_glitch_params(args.filenames, num_processes=args.processes)
 
     df = pd.DataFrame(outputs)
     if args.output is None:
+        print('\nGlitch parameters:')
         print(df)
     else:
+        root.debug(f'Save input to \'{args.output}\'')
         df.to_csv(args.output, index=False)
-
+        root.info(f'Output saved as CSV to \'{args.output}\'')
 
 if __name__ == '__main__':
     main()
