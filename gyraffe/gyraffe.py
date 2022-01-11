@@ -98,9 +98,15 @@ def get_delta_cz(profile, tau, window_width=200.):
     return sound_speed, delta, 0.5 * sound_speed**2 * delta
 
 def find_glitch_params(filename, make_plots=False):
+    """Returns None if filename is not a valid mesa profile"""
     LOGGER.debug(f"Find glitch parameters for file '{filename}'")
-    profile = read_mesa_profile(filename)
-    
+    try:
+        profile = read_mesa_profile(filename)
+    except Exception as err:
+        # TODO: this should raise a custom error to be caught later on optionally
+        LOGGER.error(f"Unexpected exception of type '{type(err)}' occurred while reading file '{filename}': {err}.")
+        return None
+
     profile['c'] = sound_speed(profile)
     profile['tau'] = acoustic_depth(profile)
     profile['gamma_smooth'] = smooth(profile['Gamma_1'], 50)
@@ -151,7 +157,7 @@ def find_glitch_params(filename, make_plots=False):
     #     plot_n2(axes[1], profile)
     #     plt.show()
     return pd.Series({
-        'filename': filename,
+        'filename': os.path.basename(filename),
         'tau_he': tau_he,
         'delta_he': delta_he,
         'amp_he': amp_he,
@@ -162,18 +168,32 @@ def find_glitch_params(filename, make_plots=False):
 #         'd_cz': d_cz,
     })
 
+
+def findall_glitch_params(filenames):
+    outputs = []
+    for filename in tqdm(filenames, desc='Finding glitch parameters', unit='files'):
+        output = find_glitch_params(filename)
+        if output is not None:
+            outputs.append(output)
+    return pd.DateFrame(outputs)
+
+
 def pool_glitch_params(filenames, num_processes=1, chunksize_factor=4):
     
     chunksize, extra = divmod(len(filenames), num_processes * chunksize_factor)
     if extra:  # If leftover, add to chunksize
         chunksize += 1
-        
+    
+    outputs = []
     with Pool(num_processes) as pool:
         # Create iterator map
         # TODO need way to make plots
         imap = pool.imap_unordered(find_glitch_params, filenames, chunksize)
-        outputs = [output for output in imap]
-    return outputs
+        for output in imap:
+            if output is not None:
+                outputs.append(output)
+        # outputs = [output for output in imap]
+    return pd.DataFrame(outputs)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -205,18 +225,18 @@ def main():
     root.info(f'Using gyraffe v{get_version()}')
     
     if args.processes == 1:
-        outputs = [find_glitch_params(filename) for filename in \
-            tqdm(args.filenames, desc='Finding glitch parameters', unit='files')]
+        outputs = findall_glitch_params(args.filenames)
+        # outputs = [find_glitch_params(filename) for filename in \
+        #     tqdm(args.filenames, desc='Finding glitch parameters', unit='files')]
     else:
         outputs = pool_glitch_params(args.filenames, num_processes=args.processes)
 
-    df = pd.DataFrame(outputs)
     if args.output is None:
         print('\nGlitch parameters:')
-        print(df)
+        print(outputs)
     else:
         root.debug(f'Save input to \'{args.output}\'')
-        df.to_csv(args.output, index=False)
+        outputs.to_csv(args.output, index=False)
         root.info(f'Output saved as CSV to \'{args.output}\'')
 
 if __name__ == '__main__':
