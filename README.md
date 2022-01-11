@@ -23,10 +23,10 @@ pip install --upgrade git+git://github.com/alexlyttle/gyraffe@main
 To extract estimates for acoustic glitch parameters tau_he, delta_he, amp_he and tau_cz (descriptions and references for these coming soon) run the following command in your terminal application of choice,
 
 ```shell
-gyraffe <filename.GYRE>
+gyraffe <filename(s)>
 ```
 
-where `<filename.GYRE>` is the path to the GYRE profile input file.
+where `<filename(s)>` is the path(s) the profile input file(s).
 
 You can use the `-p` flag to produce plots showing the approximate location of each acoustic glitch in the star as a function of estimated acoustic depth.
 
