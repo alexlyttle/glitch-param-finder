@@ -1,16 +1,20 @@
 """parse_dirnames.py
 
-Parse MESA/GYRE profile dirnames assuming the convention of
+Parse dirnames assuming the convention of metadata values preceded by their
+respective names, e.g.
 
-<metadata1.name><metadata1.value><metadata2.name><metadata2.value>
+m1.0FeH0.0Y0.26dif1
 
-where value can be converted to a Python float.
+for a solar mass, solar metallicity star with helium abundance of 0.26.
+
+The values must be convertable to a Python int or float, but not including
+values with a leading period (e.g. '.98' would be interpreted as 98.0).
 """
 import os, re, argparse, unittest, sys
 import pandas as pd
 
 pattern = r'[+\-]?(?:0+|[1-9]\d*)\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?'
-"""Patten which finds floats, modified from https://stackoverflow.com/a/658662
+"""Patten which finds numbers, modified from https://stackoverflow.com/a/658662
 
 This allows for leading '+'/'-', scientific notation ('E'/'e'), integers and
 leading zeros, but not leading periods.
@@ -18,60 +22,67 @@ leading zeros, but not leading periods.
 
 regex = re.compile(pattern)
 
+def to_number(s):
+    if '.' in s or 'e' in s.lower():
+        return float(s)
+    return int(s)
+
 def explode(dirname):
     keys = regex.split(dirname)  # Finds the keys by assuming all non-numbers 
-    values = regex.findall(dirname)
+    values = [to_number(s) for s in regex.findall(dirname)]
     return dict(zip(keys, values))
 
 def parse_dirnames(path):
-    data = []
+    records = []
     dirnames = os.listdir(path)
     for dirname in dirnames:
         if dirname.startswith('.'):
             continue
-        data.append(explode(dirname))
-    return pd.DataFrame.from_records(data)
+        metadata = {'dirname': dirname}
+        metadata.update(explode(dirname))
+        records.append(metadata)
+    return pd.DataFrame.from_records(records)
 
 
 class TestRegex(unittest.TestCase):
+    """Tests that regex is able to find valid numbers."""
+    
+    def assertAllRegexpMatches(self, s):
+        """Asserts all in s.split() are valid regex."""
+        self.assertEqual(regex.findall(s), s.split())
+
+    def assertNotFullRegexpMatches(self, s):
+        self.assertIsNone(regex.fullmatch(s))
 
     def test_leading_zeros(self):
-        s = '01 001 0001'
-        self.assertEqual(regex.findall(s), s.split())
+        self.assertAllRegexpMatches('01 001 0001')
 
     def test_plus_minus(self):
-        s = '+0 -0 +1 -1'
-        self.assertEqual(regex.findall(s), s.split())
-        
-        self.assertIsNone(regex.fullmatch('1+'))
-        self.assertIsNone(regex.fullmatch('1-'))
+        self.assertAllRegexpMatches('+0 -0 +1 -1')
     
     def test_integer(self):
-        s = '0 1'
-        self.assertEqual(regex.findall(s), s.split())
+        self.assertAllRegexpMatches('0 1 23')
     
     def test_decimal(self):
-        s = '0.0 0.1 1.0 1.1'
-        self.assertEqual(regex.findall(s), s.split())
-        
-        self.assertIsNone(regex.fullmatch('0.0.0'))
-        self.assertIsNone(regex.fullmatch('1.1.1'))
+        self.assertAllRegexpMatches('0.0 1.0')
         
     def test_scientific(self):
         s = '1e5 1e+5 1e-5'
-        self.assertEqual(regex.findall(s), s.split())
-        self.assertEqual(regex.findall(s.upper()), s.upper().split())
+        self.assertAllRegexpMatches(s)
+        self.assertAllRegexpMatches(s.upper())
     
-    def test_examples(self):
-        s = '9.9 099.99 0.12e3 +01E+23 -44e-44'
-        self.assertEqual(regex.findall(s), s.split())
+    def test_valid_examples(self):
+        self.assertAllRegexpMatches('9.9 099.99 0.12e3 +01E+23 -44e-44')
     
-    def test_invalid(self):
-        self.assertIsNone(regex.fullmatch('.0'))
-        self.assertIsNone(regex.fullmatch('.1'))
-        self.assertIsNone(regex.fullmatch('0.1.2'))
-        self.assertIsNone(regex.fullmatch('01.e23'))
-        self.assertIsNone(regex.fullmatch('e0'))
+    def test_invalid_examples(self):
+        self.assertNotFullRegexpMatches('.0')
+        self.assertNotFullRegexpMatches('.1')
+        self.assertNotFullRegexpMatches('0.1.2')
+        self.assertNotFullRegexpMatches('01.e23')
+        self.assertNotFullRegexpMatches('e0')
+        self.assertNotFullRegexpMatches('1e0.1')
+        self.assertNotFullRegexpMatches('1+1')
+        self.assertNotFullRegexpMatches('01d23')
 
 
 def run(args, _):
@@ -83,7 +94,7 @@ def run(args, _):
     if args.output is None:
         print(data)
     else:
-        data.to_csv(args.output, index=False)
+        data.to_json(args.output)
 
 def test(_, unknown_args):
     # A bit of a hack to get the program name
@@ -96,7 +107,7 @@ def main():
     
     p = subparsers.add_parser('run', description='run script')
     p.add_argument('path', type=str, help='path to parse')
-    p.add_argument('-o', '--output', type=str, help='path to save output to')
+    p.add_argument('-o', '--output', type=str, help='filename to save JSON output')
     p.set_defaults(func=run)
     
     p = subparsers.add_parser('test', description='run unit tests',
