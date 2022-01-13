@@ -18,18 +18,30 @@ def main():
     
     dfs = []
     for path in paths:
+        
+        historyfile = os.path.join(args.path, path, '.'.join([path, 'csv']))
+
+        if not os.path.exists(historyfile):
+            df = pd.DataFrame()
+            df['dirname'] = path
+            dfs.append(df)
+            continue
+        
+        history = pd.read_csv(historyfile)
+
+        # historyfile = os.path.join(args.path, path, 'history_ms.data')
+        # history = pd.read_table(historyfile, delimiter=r'\s+', header=4)
+        # indexfile = os.path.join(args.path, path, 'profiles.index')
+        # index = pd.read_table(indexfile, delimiter=r'\s+', skiprows=1,
+        #                         names=['model_number', 'priority', 'profile_number'])
+                    
         gparamfile = os.path.join(args.path, path, 'profile_gparams.csv')
         
         gparams = pd.read_csv(gparamfile)
         gparams['filename'] = gparams['filename'].apply(strip_extensions)
-        
-        # indexfile = os.path.join(args.path, path, 'profiles.index')        
-        # index = pd.read_table(indexfile, delimiter=r'\s+', skiprows=1,
-        #                       names=['model_number', 'priority', 'profile_number'])
-        historyfile = os.path.join(args.path, path, '.'.join([path, 'csv']))
-        history = pd.read_csv(historyfile)
-        
+
         df = history.merge(gparams, on='filename')
+        
         df['dirname'] = path
         dfs.append(df)
         
