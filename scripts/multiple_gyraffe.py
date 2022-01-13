@@ -30,6 +30,8 @@ def main():
                         )
     parser.add_argument('--archive-name', type=str, default='GYRE.zip',
                         help='name of profile archive under provided paths')
+    parser.add_argument('--path', type=str, default='',
+                        help='path to prepend to tracklist')
 
     args = parser.parse_args()
     
@@ -45,8 +47,8 @@ def main():
     paths = read_infile(args.infile)
 
     for path in paths:
-        outfile = os.path.join(path, 'profile_gparams.csv')
-        archive_name = os.path.join(path, 'GYRE.zip')
+        outfile = os.path.join(args.path, path, 'profile_gparams.csv')
+        archive_name = os.path.join(args.path, path, 'GYRE.zip')
         logger.info(f"Running gyraffe for profiles in archive '{archive_name}'")
         with zipfile.ZipFile(archive_name, 'r') as archive:
             outputs = find_in_archive(archive, logger)
