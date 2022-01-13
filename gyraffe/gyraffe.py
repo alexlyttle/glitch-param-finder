@@ -1,6 +1,7 @@
 import os, argparse, logging
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from multiprocessing import Pool
 from ast import literal_eval
@@ -104,32 +105,33 @@ def find_glitch_params(filename, make_plots=False):
         profile = read_mesa_profile(filename)
     except Exception as err:
         # TODO: this should raise a custom error to be caught later on optionally
-        LOGGER.error(f"Unexpected exception of type '{type(err)}' occurred while reading file '{filename}': {err}.")
+        LOGGER.error(f"Unexpected exception of type '{type(err).__name__}' occurred while reading file '{filename}': {err}.")
         return None
 
     profile['c'] = sound_speed(profile)
     profile['tau'] = acoustic_depth(profile)
-    profile['gamma_smooth'] = smooth(profile['Gamma_1'], 50)
+    profile['gamma_smooth'] = smooth(profile['Gamma_1'], 25)
     
     tau_he, delta_he, gamma_he, amp_he = (np.nan, np.nan, np.nan, np.nan)
     he_cond = (profile['T'] > 4e4) & (profile['T'] < 2e5)
-    
+
     if any(he_cond):
         tau = profile.loc[he_cond, 'tau']
         gamma = profile.loc[he_cond, 'gamma_smooth']
         dgamma = np.gradient(gamma)
-        dgamma2 = np.gradient(dgamma)
-        mask = (dgamma > 0) & (dgamma2 > 0)
+        # dgamma2 = np.gradient(dgamma)
+        mask = (dgamma > 0) # & (dgamma2 < 0)
         
-        tau_he = tau[mask].iloc[0]
-        delta_he = tau_he - tau[mask].iloc[-1]
-        gamma_he = profile[he_cond].loc[mask, 'Gamma_1'].iloc[0]
-        gamma0 = 1.651
-        Gamma_he = 2* delta_he * np.sqrt(2*np.pi) * (gamma0 - gamma_he) / (gamma0 + gamma_he)
+        if any(mask):
+            tau_he = tau[mask].iloc[0]
+            delta_he = tau_he - tau[mask].iloc[-1]
+            gamma_he = profile[he_cond].loc[mask, 'Gamma_1'].iloc[0]
+            gamma0 = 1.651
+            Gamma_he = 2* delta_he * np.sqrt(2*np.pi) * (gamma0 - gamma_he) / (gamma0 + gamma_he)
+            
+            T = profile['tau'].iloc[0]
+            amp_he = np.pi * Gamma_he / T # equation (16) Houdek & Gough (2007)
         
-        T = profile['tau'].iloc[0]
-        amp_he = np.pi * Gamma_he / T # equation (16) Houdek & Gough (2007)
-    
     tau_cz, delta_cz, gamma_cz, amp_cz = (np.nan, np.nan, np.nan, np.nan)
     conv = profile['N^2'] < 0
 
@@ -150,12 +152,14 @@ def find_glitch_params(filename, make_plots=False):
     #  tau_cz = profile.loc[cz_cond, 'tau'].iloc[0]
     #  gamma_cz = profile.loc[cz_cond, 'Gamma_1'].iloc[0]
     
-    # if make_plots:
-    # # TODO!
-    #     _, axes = plt.subplots(2, 1, figsize=(6.4, 8.0), sharex=True, gridspec_kw={'hspace': 0.05})
-    #     plot_gamma(axes[0], profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz)
-    #     plot_n2(axes[1], profile)
-    #     plt.show()
+    if make_plots:
+        _, axes = plt.subplots(2, 1, figsize=(6.4, 8.0), sharex=True, gridspec_kw={'hspace': 0.05})
+        plot_gamma(axes[0], profile, tau, tau_he, gamma_he, delta_he, tau_cz, gamma_cz)
+        plot_n2(axes[1], profile)
+        # plt.show()
+    
+    if not isinstance(filename, str):
+        filename = filename.name
     return pd.Series({
         'filename': os.path.basename(filename),
         'tau_he': tau_he,
@@ -169,13 +173,13 @@ def find_glitch_params(filename, make_plots=False):
     })
 
 
-def findall_glitch_params(filenames):
+def findall_glitch_params(filenames, make_plots=False):
     outputs = []
     for filename in tqdm(filenames, desc='Finding glitch parameters', unit='files'):
-        output = find_glitch_params(filename)
+        output = find_glitch_params(filename, make_plots=make_plots)
         if output is not None:
             outputs.append(output)
-    return pd.DateFrame(outputs)
+    return pd.DataFrame(outputs)
 
 
 def pool_glitch_params(filenames, num_processes=1, chunksize_factor=4):
@@ -199,9 +203,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('filenames', nargs='+', 
                         help='GYRE profile filename(s)')
-    # parser.add_argument('-p', '--plot', action='store_true',
-    #                     help='make plots')
-    parser.add_argument('-p', '--processes', type=int, default=1,
+    parser.add_argument('-p', '--plot', action='store_true',
+                        help='make plots')
+    parser.add_argument('-n', '--num-processes', type=int, default=1,
                         help='number of parallel processes (defaults to 1)')
     parser.add_argument('-o', '--output', type=str,
                         help='filename to which to output results')
@@ -224,12 +228,12 @@ def main():
     root.setLevel(args.log_level)
     root.info(f'Using gyraffe v{get_version()}')
     
-    if args.processes == 1:
-        outputs = findall_glitch_params(args.filenames)
+    if args.num_processes == 1:
+        outputs = findall_glitch_params(args.filenames, make_plots=args.plot)
         # outputs = [find_glitch_params(filename) for filename in \
         #     tqdm(args.filenames, desc='Finding glitch parameters', unit='files')]
     else:
-        outputs = pool_glitch_params(args.filenames, num_processes=args.processes)
+        outputs = pool_glitch_params(args.filenames, num_processes=args.num_processes)
 
     if args.output is None:
         print('\nGlitch parameters:')
@@ -238,6 +242,9 @@ def main():
         root.debug(f'Save input to \'{args.output}\'')
         outputs.to_csv(args.output, index=False)
         root.info(f'Output saved as CSV to \'{args.output}\'')
+
+    if args.plot:
+        plt.show()
 
 if __name__ == '__main__':
     main()
