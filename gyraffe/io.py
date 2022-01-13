@@ -90,7 +90,10 @@ def read_mesa_profile(filename):
 
     LOGGER.debug(f"Open file '{filename}'")
     
-    with open(filename, 'r') as file:
+    if isinstance(filename, str):
+        filename = open(filename, 'r')
+    
+    with filename as file:
         
         LOGGER.debug("Parse header")
         header = file.readline().split()
