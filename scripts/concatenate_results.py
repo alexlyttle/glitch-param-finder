@@ -11,7 +11,7 @@ def main():
     parser.add_argument('infile', type=argparse.FileType('r'), help='tracklist')
     parser.add_argument('--path', type=str, default='',
                         help='path to prepend to tracklist')
-    parser.add_argument('-o', '--outfile', type=argparse.FileType('r'))
+    parser.add_argument('-o', '--outfile', type=argparse.FileType('w'))
     
     args = parser.parse_args()
     paths = read_infile(args.infile)
