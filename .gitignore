@@ -5,3 +5,5 @@ __pycache__/
 build/
 scripts/data/
 .ipynb_checkpoints/
+*.hdf5
+*.h5
